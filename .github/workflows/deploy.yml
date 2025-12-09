@@ -19,61 +19,32 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      # =======================
-      #   TRIVY INSTALLATION
-      # =======================
-      - name: Install Trivy (Official APT method)
-        run: |
-          sudo apt-get update
-          sudo apt-get install wget apt-transport-https gnupg -y
-          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
-          echo deb https://aquasecurity.github.io/trivy-repo/deb stable main | sudo tee -a /etc/apt/sources.list.d/trivy.list
-          sudo apt-get update
-          sudo apt-get install trivy -y
-
-
-      # =======================
-      #  TRIVY VULN SCAN
-      # =======================
-      - name: Trivy Vulnerability Scan (HIGH + CRITICAL)
-        run: |
-          trivy fs --severity HIGH,CRITICAL --exit-code 0 .
-
-      # =======================
-      #  AWS LOGIN ECR
-      # =======================
       - name: Login to Amazon ECR (using EC2 role)
         run: |
           aws ecr get-login-password --region $AWS_REGION \
           | docker login --username AWS --password-stdin \
           $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+    
 
-      # =======================
-      #  DOCKER BUILD
-      # =======================
+      - name: Run vulnerability scan with Trivy
+        run: |
+          trivy image --exit-code 0 --severity HIGH,CRITICAL $ECR_REPO:$IMAGE_TAG || true
+
+
       - name: Build Docker image
         run: |
           docker build -t $ECR_REPO:$IMAGE_TAG .
 
-      # =======================
-      #  TAG DOCKER IMAGE
-      # =======================
       - name: Tag Docker image
         run: |
           ECR_URI=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO
           docker tag $ECR_REPO:$IMAGE_TAG $ECR_URI:$IMAGE_TAG
           echo "ECR_URI=$ECR_URI" >> $GITHUB_ENV
 
-      # =======================
-      #  PUSH IMAGE TO ECR
-      # =======================
       - name: Push Docker image to ECR
         run: |
           docker push $ECR_URI:$IMAGE_TAG
 
-      # =======================
-      #  DEPLOY WORDPRESS + MYSQL
-      # =======================
       - name: Deploy WordPress + MySQL on EC2
         run: |
           ECR_URI=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO
@@ -83,7 +54,7 @@ jobs:
             docker network create wp-net
           fi
 
-          # Crear contenedor MySQL si no existe
+          # Crear MySQL solo si no existe
           if ! docker ps -a --format '{{.Names}}' | grep -q '^wp-mysql$'; then
             docker run -d \
               --name wp-mysql \
@@ -95,10 +66,10 @@ jobs:
               mysql:5.7
           fi
 
-          # Borrar contenedor anterior de WordPress
+          # Borrar WordPress anterior
           docker rm -f wp-app || true
 
-          # Descargar nueva imagen desde ECR
+          # Descargar nueva imagen
           docker pull $ECR_URI:$IMAGE_TAG
 
           # Levantar WordPress
