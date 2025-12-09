@@ -6,6 +6,6 @@ RUN echo "upload_max_filesize = 64M" > /usr/local/etc/php/conf.d/uploads.ini \
 
 RUN chown -R www-data:www-data /var/www/html
 
-# hola mundoCI/CD
+# prueba 100
 
 
